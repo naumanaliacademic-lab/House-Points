@@ -55,6 +55,7 @@ const Store = (() => {
       version: 1,
       houses: DEFAULT_HOUSES.map(h => ({ ...h })),
       students: [],
+      classes: [],
       categories: DEFAULT_CATEGORIES.map(c => ({ id: uid(), ...c })),
       awards: [],
       settings: {
@@ -80,6 +81,14 @@ const Store = (() => {
       house: s.house || '', groups: Array.isArray(s.groups) ? s.groups : [], archived: !!s.archived,
       createdAt: s.createdAt || Date.now(),
     }));
+    const names = new Set();
+    out.classes = [];
+    const addCls = (name, createdAt) => {
+      name = String(name || '').trim();
+      if (name && !names.has(name)) { names.add(name); out.classes.push({ name, createdAt: createdAt || Date.now() }); }
+    };
+    (Array.isArray(d.classes) ? d.classes : []).forEach(c => addCls(typeof c === 'string' ? c : c.name, c.createdAt));
+    out.students.forEach(s => s.groups.forEach(g => addCls(g)));
     out.categories = Array.isArray(d.categories) && d.categories.length ? d.categories : base.categories;
     out.awards = (d.awards || []).filter(a => a && a.studentId);
     return out;
@@ -97,6 +106,7 @@ const Store = (() => {
   }
 
   function save() {
+    if (data) syncClasses();
     try {
       localStorage.setItem(KEY, JSON.stringify(data));
       saveError = null;
@@ -115,10 +125,47 @@ const Store = (() => {
   const student = id => data.students.find(s => s.id === id);
   const category = id => data.categories.find(c => c.id === id);
 
+  // Classes are stored in their own list (so an empty class can exist before
+  // its students are imported) and students carry the names of their classes.
+  function syncClasses() {
+    const have = new Set(data.classes.map(c => c.name));
+    data.students.forEach(s => s.groups.forEach(g => {
+      if (!have.has(g)) { have.add(g); data.classes.push({ name: g, createdAt: Date.now() }); }
+    }));
+  }
+
   function groups() {
-    const set = new Set();
-    data.students.forEach(s => { if (!s.archived) s.groups.forEach(g => set.add(g)); });
-    return [...set].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    return data.classes.map(c => c.name).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }
+
+  function classStudents(name, { archived = false } = {}) {
+    return data.students.filter(s => s.groups.includes(name) && (archived || !s.archived));
+  }
+
+  function addClass(name) {
+    name = String(name || '').trim();
+    if (!name) return null;
+    if (!data.classes.some(c => c.name === name)) { data.classes.push({ name, createdAt: Date.now() }); save(); }
+    return name;
+  }
+
+  // Removes the class. With deleteStudents, students who are in no other class
+  // are deleted too (with their points); students in other classes are kept.
+  function deleteClass(name, { deleteStudents: alsoStudents = false } = {}) {
+    const gone = [];
+    data.students.forEach(s => {
+      if (!s.groups.includes(name)) return;
+      s.groups = s.groups.filter(g => g !== name);
+      if (alsoStudents && !s.groups.length) gone.push(s.id);
+    });
+    data.classes = data.classes.filter(c => c.name !== name);
+    if (gone.length) {
+      const set = new Set(gone);
+      data.students = data.students.filter(s => !set.has(s.id));
+      data.awards = data.awards.filter(a => !set.has(a.studentId));
+    }
+    save();
+    return gone.length;
   }
 
   const normName = s => String(s || '').toLowerCase().replace(/[^a-zÀ-ɏ' -]/g, '').replace(/\s+/g, ' ').trim();
@@ -276,6 +323,12 @@ const Store = (() => {
   }
 
   function renameGroup(oldName, newName) {
+    if (!newName) { deleteClass(oldName); return; }
+    const existing = data.classes.find(c => c.name === newName);
+    const cls = data.classes.find(c => c.name === oldName);
+    if (cls && !existing) cls.name = newName;
+    else data.classes = data.classes.filter(c => c.name !== oldName);
+    data.awards.forEach(a => { if (a.group === oldName) a.group = newName; });
     data.students.forEach(s => {
       const i = s.groups.indexOf(oldName);
       if (i >= 0) {
@@ -333,6 +386,7 @@ const Store = (() => {
     PERIODS, periodStart, awardsSince, studentTotals, houseTotals, lastAwardMap, milestoneFor,
     award, undoBatch, deleteAward,
     addStudent, updateStudent, deleteStudents, bulk, importStudents, renameGroup,
+    addClass, deleteClass, classStudents,
     updateSettings, exportJSON, importJSON, resetAwards, resetAll, loadDemo,
   };
 })();

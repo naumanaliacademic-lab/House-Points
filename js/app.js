@@ -101,10 +101,11 @@
   modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
 
   /* ---------- routing ---------- */
-  const VIEWS = { award: renderAward, board: renderBoard, students: renderStudents, history: renderHistory, settings: renderSettings };
+  const VIEWS = { award: renderAward, classes: renderClasses, board: renderBoard, students: renderStudents, history: renderHistory, settings: renderSettings };
   function route() {
-    const v = location.hash.replace('#', '');
+    const [v, ...rest] = location.hash.replace('#', '').split('/');
     ui.view = VIEWS[v] ? v : 'award';
+    ui.classOpen = ui.view === 'classes' && rest.length ? decodeURIComponent(rest.join('/')) : '';
     $$('#tabs a').forEach(a => a.classList.toggle('active', a.dataset.view === ui.view));
     render();
     window.scrollTo(0, 0);
@@ -116,6 +117,7 @@
     $('#toasts').classList.toggle('lift', ui.view === 'award' && ui.selected.size > 0);
   }
   function go(v) { if (location.hash === '#' + v) route(); else location.hash = v; }
+  const classHash = name => 'classes/' + encodeURIComponent(name);
 
   /* ---------- banner (backup reminder / save errors) ---------- */
   function renderBanner() {
@@ -175,8 +177,11 @@
         <h1>Award points</h1><span class="spacer"></span>
         <button class="btn small" data-act="select-shown">Select all shown</button>
       </div>
+      ${Store.groups().length ? `<div class="chips class-chips" id="aw-class" role="tablist" aria-label="Class">
+        <button class="chip ${!ui.group ? 'on' : ''}" data-class="">All students</button>
+        ${Store.groups().map(g => `<button class="chip ${ui.group === g ? 'on' : ''}" data-class="${esc(g)}">📘 ${esc(g)}</button>`).join('')}
+      </div>` : ''}
       <div class="toolbar">
-        <select id="aw-group" aria-label="Class">${groupOptions(ui.group)}</select>
         <div class="chips" id="aw-house">
           <button class="chip ${!ui.house ? 'on' : ''}" data-house="">All houses</button>
           ${d.houses.map(h => `<button class="chip ${ui.house === h.id ? 'on' : ''}" data-house="${h.id}">${dot(h.id)}${esc(h.name)}</button>`).join('')}
@@ -202,7 +207,12 @@
         </div>
       </div>`;
 
-    $('#aw-group').onchange = e => { ui.group = e.target.value; rememberUI(); updateGrid(); };
+    if ($('#aw-class')) $('#aw-class').onclick = e => {
+      const b = e.target.closest('[data-class]'); if (!b) return;
+      ui.group = b.dataset.class; rememberUI();
+      $$('#aw-class .chip').forEach(c => c.classList.toggle('on', c === b));
+      updateGrid();
+    };
     $('#aw-house').onclick = e => {
       const b = e.target.closest('[data-house]'); if (!b) return;
       ui.house = b.dataset.house;
@@ -257,7 +267,9 @@
         <span class="nm">${esc(s.name)}</span>
         <span class="meta"><span>${esc(s.form || houseName(s.house))}</span><span class="pts">${yearTotals.get(s.id) || 0}</span></span>
       </button>`).join('')
-      : `<p class="muted" style="grid-column:1/-1">No students match. ${ui.search ? 'Try a different search.' : ''}</p>`;
+      : ui.group && !Store.classStudents(ui.group).length && !ui.search
+        ? `<div class="card empty" style="grid-column:1/-1"><p><b>${esc(ui.group)}</b> has no students yet.</p><button class="btn primary" data-upload-class="${esc(ui.group)}">Upload class list</button></div>`
+        : `<p class="muted" style="grid-column:1/-1">No students match. ${ui.search ? 'Try a different search.' : ''}</p>`;
   }
 
   function updateBar() {
@@ -624,7 +636,7 @@
 
   function openAddStudent() {
     const blank = { name: '', house: '', form: '', year: '' };
-    const groups = ui.stGroup ? [ui.stGroup] : ui.group ? [ui.group] : [];
+    const groups = ui.classOpen ? [ui.classOpen] : ui.stGroup ? [ui.stGroup] : ui.group ? [ui.group] : [];
     openModal(`
       <div class="modal-head"><h2>Add a student</h2><button class="btn icon" data-close aria-label="Close">✕</button></div>
       ${studentForm(blank, groups)}
@@ -716,13 +728,205 @@
   }
 
   /* =====================================================================
+     CLASSES
+     ===================================================================== */
+  function houseSplit(students, since) {
+    const ids = new Set(students.map(s => s.id));
+    const t = Object.fromEntries(Store.get().houses.map(h => [h.id, 0]));
+    Store.get().awards.forEach(a => {
+      if (a.ts < since || !ids.has(a.studentId)) return;
+      const s = Store.student(a.studentId);
+      if (s && t[s.house] !== undefined) t[s.house] += a.points;
+    });
+    return t;
+  }
+
+  function splitBar(split) {
+    const total = Object.values(split).reduce((a, b) => a + b, 0);
+    if (!total) return '<div class="split-bar empty"></div>';
+    return `<div class="split-bar">${Store.get().houses.map(h => split[h.id]
+      ? `<i style="background:${h.color};flex:${split[h.id]}" title="${esc(h.name)}: ${split[h.id]}"></i>` : '').join('')}</div>`;
+  }
+
+  function renderClasses() {
+    if (ui.classOpen) {
+      if (Store.groups().includes(ui.classOpen)) return renderClassDetail(ui.classOpen);
+      ui.classOpen = '';
+    }
+    const names = Store.groups();
+    const termStart = Store.periodStart('term');
+    const termT = Store.studentTotals(termStart);
+    view.innerHTML = `
+      <div class="section-head">
+        <h1>Classes</h1><span class="spacer"></span>
+        <button class="btn primary" data-act="new-class">＋ New class</button>
+      </div>
+      ${names.length ? `<div class="class-grid">${names.map(name => {
+        const studs = Store.classStudents(name);
+        const pts = studs.reduce((t, s) => t + (termT.get(s.id) || 0), 0);
+        return `<div class="card class-card">
+          <a class="class-title" href="#${classHash(name)}"><h2>📘 ${esc(name)}</h2></a>
+          <div class="muted small">${plural(studs.length, 'student')} · ${plural(pts, 'point')} this term</div>
+          ${splitBar(houseSplit(studs, termStart))}
+          <div class="row" style="margin-top:.2rem">
+            ${studs.length ? `<button class="btn small primary" data-award-class="${esc(name)}">Award</button>` : ''}
+            <button class="btn small" data-upload-class="${esc(name)}">⬆︎ Upload list</button>
+            <span class="spacer"></span>
+            <a class="btn small" href="#${classHash(name)}">Open →</a>
+          </div>
+        </div>`;
+      }).join('')}</div>`
+      : `<div class="card empty">
+          <div class="big-emoji">📘</div>
+          <h2>Create a class for each group you teach</h2>
+          <p class="muted">Then upload that class's list (CSV, PDF or pasted names). Each class keeps its own students, and you can award points class by class.</p>
+          <button class="btn primary big" data-act="new-class">＋ Create your first class</button>
+        </div>`}
+      ${Store.get().students.some(s => !s.archived && !s.groups.length)
+        ? `<p class="muted small" style="margin-top:1rem">Some students are not in any class — find them on the <a href="#students">Students</a> page.</p>` : ''}`;
+  }
+
+  function renderClassDetail(name) {
+    const studs = Store.classStudents(name).sort(byName);
+    const termStart = Store.periodStart('term');
+    const termT = Store.studentTotals(termStart);
+    const yearT = Store.studentTotals(Store.periodStart('year'));
+    const last = Store.lastAwardMap();
+    const split = houseSplit(studs, termStart);
+    const counts = Object.fromEntries(Store.get().houses.map(h => [h.id, studs.filter(s => s.house === h.id).length]));
+    view.innerHTML = `
+      <a href="#classes" class="small">← All classes</a>
+      <div class="section-head" style="margin-top:.4rem">
+        <h1>📘 ${esc(name)}</h1>
+        <span class="muted">${plural(studs.length, 'student')}</span>
+        <span class="spacer"></span>
+        <button class="btn small" id="cl-rename">Rename</button>
+        <button class="btn small danger" id="cl-delete">Delete class</button>
+      </div>
+      <div class="row" style="margin-bottom:1rem">
+        ${studs.length ? `<button class="btn primary" data-award-class="${esc(name)}">＋ Award points</button>` : ''}
+        <button class="btn ${studs.length ? '' : 'primary'}" data-upload-class="${esc(name)}">⬆︎ Upload class list</button>
+        <button class="btn" data-act="add-student">＋ Add student</button>
+      </div>
+      ${studs.length ? `
+        <div class="houses compact">
+          ${Store.get().houses.map(h => `<div class="house-card ${h.id}" style="--house:${h.color}">
+            <div class="hname">${esc(h.name)}</div>
+            <div class="total">${split[h.id]}</div>
+            <div class="sub">points this term · ${plural(counts[h.id], 'student')}</div>
+          </div>`).join('')}
+        </div>
+        <div class="table-wrap" style="margin-top:1rem">
+          <table>
+            <thead><tr><th>Name</th><th>Form</th><th>House</th><th class="num">This term</th><th class="num">This year</th><th>Last award</th><th></th></tr></thead>
+            <tbody id="cl-body">${studs.map(s => `
+              <tr class="clickable" data-id="${s.id}">
+                <td><b>${esc(s.name)}</b></td>
+                <td>${esc(s.form)}</td>
+                <td>${houseTag(s.house)}</td>
+                <td class="num"><b>${termT.get(s.id) || 0}</b></td>
+                <td class="num">${yearT.get(s.id) || 0}</td>
+                <td class="small ${last.get(s.id) ? '' : 'muted'}">${ago(last.get(s.id))}</td>
+                <td class="num"><button class="btn small" data-remove="${s.id}" title="Remove from this class">Remove</button></td>
+              </tr>`).join('')}</tbody>
+          </table>
+        </div>`
+      : `<div class="card empty">
+          <div class="big-emoji">📄</div>
+          <h2>No students in ${esc(name)} yet</h2>
+          <p class="muted">Upload the class list as a CSV or PDF file, paste the names, or add students one by one.</p>
+        </div>`}`;
+
+    $('#cl-rename').onclick = () => {
+      const n = (prompt(`Rename “${name}” to:`, name) || '').trim();
+      if (!n || n === name) return;
+      if (Store.groups().includes(n) && !confirm(`A class called “${n}” already exists. Merge the two classes?`)) return;
+      Store.renameGroup(name, n);
+      if (ui.group === name) { ui.group = n; rememberUI(); }
+      toast(`Renamed to ${esc(n)}.`);
+      go(classHash(n));
+    };
+    $('#cl-delete').onclick = () => openDeleteClass(name);
+    if ($('#cl-body')) $('#cl-body').onclick = e => {
+      const rm = e.target.closest('[data-remove]');
+      if (rm) {
+        const s = Store.student(rm.dataset.remove);
+        if (!confirm(`Remove ${s.name} from ${name}? Their points are kept.`)) return;
+        Store.bulk([s.id], st => { st.groups = st.groups.filter(g => g !== name); });
+        toast(`Removed ${esc(s.name)} from ${esc(name)}.`);
+        renderClassDetail(name);
+        return;
+      }
+      const tr = e.target.closest('tr[data-id]');
+      if (tr) openStudent(tr.dataset.id);
+    };
+  }
+
+  function openNewClass() {
+    openModal(`
+      <div class="modal-head"><h2>New class</h2><button class="btn icon" data-close aria-label="Close">✕</button></div>
+      <label class="field">Class name<input type="text" id="nc-name" placeholder="e.g. 10X Physics" maxlength="60" autocomplete="off"></label>
+      <p class="muted small" style="margin-top:.5rem">Use a name you'll recognise, e.g. <i>10X Physics</i>, <i>9B Science</i> or <i>Form 8R</i>.</p>
+      <div class="modal-foot">
+        <button class="btn" data-close>Cancel</button>
+        <button class="btn" id="nc-empty">Create empty class</button>
+        <button class="btn primary" id="nc-upload">Create &amp; upload class list</button>
+      </div>`, () => {
+      const create = upload => {
+        const name = $('#nc-name').value.replace(/\s+/g, ' ').trim();
+        if (!name) { $('#nc-name').focus(); return; }
+        if (Store.groups().includes(name)) { toast(`You already have a class called ${esc(name)}.`); }
+        Store.addClass(name);
+        closeModal();
+        location.hash = classHash(name);
+        if (upload) setTimeout(() => openImport(name), 50);
+      };
+      $('#nc-upload').onclick = () => create(true);
+      $('#nc-empty').onclick = () => create(false);
+      $('#nc-name').onkeydown = e => { if (e.key === 'Enter') create(true); };
+      setTimeout(() => $('#nc-name').focus(), 50);
+    });
+  }
+
+  function openDeleteClass(name) {
+    const studs = Store.classStudents(name, { archived: true });
+    const onlyHere = studs.filter(s => s.groups.length === 1).length;
+    openModal(`
+      <div class="modal-head"><h2>Delete ${esc(name)}?</h2><button class="btn icon" data-close aria-label="Close">✕</button></div>
+      <p>This class has ${plural(studs.length, 'student')}${onlyHere !== studs.length ? `, of whom ${onlyHere} ${onlyHere === 1 ? 'is' : 'are'} not in any other class` : ''}.</p>
+      <p class="muted small"><b>Keep students</b> removes only the class; students and their points stay (find them on the Students page).<br>
+      <b>Delete students too</b> also deletes the students who are only in this class, and their points. Students who are in other classes are kept.</p>
+      <div class="modal-foot">
+        <button class="btn" data-close>Cancel</button>
+        <button class="btn" id="dc-keep">Delete class, keep students</button>
+        <button class="btn danger solid" id="dc-all" ${onlyHere ? '' : 'disabled'}>Delete class and ${plural(onlyHere, 'student')}</button>
+      </div>`, () => {
+      const done = removed => {
+        if (ui.group === name) { ui.group = ''; rememberUI(); }
+        closeModal();
+        toast(`Deleted ${esc(name)}${removed ? ` and ${plural(removed, 'student')}` : ''}.`);
+        go('classes');
+      };
+      $('#dc-keep').onclick = () => done(Store.deleteClass(name));
+      $('#dc-all').onclick = () => {
+        if (!confirm(`Permanently delete ${plural(onlyHere, 'student')} and their points? This cannot be undone.`)) return;
+        done(Store.deleteClass(name, { deleteStudents: true }));
+      };
+    });
+  }
+
+  /* =====================================================================
      IMPORT
      ===================================================================== */
-  const im = { rows: [], mapping: null, candidates: [], source: '', fileName: '', tidy: true, group: '', house: '', form: '' };
+  const im = { rows: [], mapping: null, candidates: [], source: '', fileName: '', tidy: true, group: '', house: '', form: '', target: '' };
 
-  function openImport() {
+  // target = the class the list is being uploaded into ('' = let the teacher choose)
+  function openImport(target) {
+    if (typeof target === 'string') im.target = target;
+    else if (target !== undefined) im.target = '';
     openModal(`
-      <div class="modal-head"><h2>Import students</h2><button class="btn icon" data-close aria-label="Close">✕</button></div>
+      <div class="modal-head"><h2>${im.target ? `Upload class list · ${esc(im.target)}` : 'Import students'}</h2><button class="btn icon" data-close aria-label="Close">✕</button></div>
+      ${im.target ? `<p class="muted small" style="margin-top:-.4rem">Students in this file will be added to <b>${esc(im.target)}</b>.</p>` : ''}
       <div class="drop" id="im-drop" tabindex="0" role="button">
         <div style="font-size:2rem">📄</div>
         <b>Choose a CSV or PDF class list</b><br><span class="muted small">or drag and drop it here</span>
@@ -769,7 +973,7 @@
       startMapping(rows, source, file.name);
     } catch (err) {
       console.error(err);
-      openImport();
+      openImport(im.target);
       toast(`⚠️ ${esc(err.message || 'Could not read that file.')}`, { ms: 9000 });
     }
   }
@@ -782,7 +986,7 @@
     im.tidy = true;
     im.house = ''; im.form = '';
     const stem = fileName.replace(/\.[a-z0-9]+$/i, '').replace(/[_]+/g, ' ').trim();
-    im.group = ui.stGroup || ui.group || (source === 'paste' ? '' : stem.slice(0, 40));
+    im.group = im.target || ui.stGroup || ui.group || (source === 'paste' ? '' : stem.slice(0, 40));
     im.candidates = Importer.buildCandidates(im.rows, im.mapping, { tidy: im.tidy });
     renderMapping();
   }
@@ -806,7 +1010,7 @@
           </label>`).join('')}</div>` : ''}
       ${!hasName ? '<p class="banner error" style="margin:0 0 .8rem">Choose which column holds the student names.</p>' : ''}
       <div class="grid-2" style="margin-bottom:.8rem">
-        <label class="field">Add everyone to class<input type="text" id="im-group" list="groups-dl" value="${esc(im.group)}" placeholder="e.g. 10X Physics (optional)"></label>
+        <label class="field">Put everyone in class<input type="text" id="im-group" list="groups-dl" value="${esc(im.group)}" placeholder="e.g. 10X Physics (optional)"></label>
         <label class="field">House for anyone without one<select id="im-house">${houseOptions(im.house, '— Leave blank —')}</select></label>
         <label class="field">Form for anyone without one<input type="text" id="im-form" value="${esc(im.form)}" placeholder="e.g. 10X (optional)"></label>
         <label class="field" style="flex-direction:row;align-items:center;gap:.5rem;margin-top:1.3rem"><input type="checkbox" id="im-tidy" ${im.tidy ? 'checked' : ''}> Tidy capitals (SMITH → Smith)</label>
@@ -836,7 +1040,7 @@
       $('#im-house').onchange = e => { im.house = e.target.value; drawPreview(); };
       $('#im-form').oninput = e => { im.form = e.target.value; };
       $('#im-all').onchange = e => { im.candidates.forEach(c => { c.include = e.target.checked && !!c.name.trim(); }); drawPreview(); };
-      $('#im-back').onclick = openImport;
+      $('#im-back').onclick = () => openImport(im.target);
       $('#im-go').onclick = finishImport;
       $('#im-body').addEventListener('input', e => {
         const tr = e.target.closest('tr[data-i]'); if (!tr) return;
@@ -891,8 +1095,8 @@
     closeModal();
     const noHouse = rows.filter(r => !r.house).length;
     toast(`✅ Imported: ${plural(added, 'new student')}${updated ? `, ${updated} already on your list` : ''}${group ? ` · class “${esc(group)}”` : ''}.`, { ms: 7000 });
-    if (noHouse) toast(`${plural(noHouse, 'student')} ${noHouse === 1 ? 'has' : 'have'} no house yet — select them on the Students page and use “Set house”.`, { ms: 9000 });
-    if (group) { ui.stGroup = group; ui.group = group; }
+    if (noHouse) toast(`${plural(noHouse, 'student')} ${noHouse === 1 ? 'has' : 'have'} no house yet — tick them in the list and use “Set house”.`, { ms: 9000 });
+    if (group) { ui.stGroup = group; ui.group = group; rememberUI(); go(classHash(group)); return; }
     if (noHouse) { ui.stHouse = 'none'; go('students'); } else { ui.stHouse = ''; go(ui.view === 'students' ? 'students' : 'award'); }
   }
 
@@ -975,7 +1179,6 @@
     const d = Store.get();
     const st = d.settings;
     const groups = Store.groups();
-    const counts = Object.fromEntries(groups.map(g => [g, d.students.filter(s => !s.archived && s.groups.includes(g)).length]));
     view.innerHTML = `
       <div class="section-head"><h1>Settings</h1></div>
       <div class="settings-grid">
@@ -1024,11 +1227,7 @@
           <button class="btn small" id="set-addms">＋ Add milestone</button>
 
           <h2 style="margin-top:1.2rem">Classes</h2>
-          ${groups.length ? `<ul class="rank-list">${groups.map(g => `
-            <li><span class="nm">${esc(g)}</span><span class="muted small">${plural(counts[g], 'student')}</span>
-              <button class="btn small" data-rename-group="${esc(g)}">Rename</button>
-              <button class="btn small danger" data-rm-group="${esc(g)}">Remove</button></li>`).join('')}</ul>`
-            : '<p class="muted">No classes yet. Classes are created when you import a list or add a student to one.</p>'}
+          <p class="muted">You have ${plural(groups.length, 'class', 'classes')}. Create, upload, rename and delete classes on the <a href="#classes">Classes</a> page.</p>
         </div>
 
         <div class="card">
@@ -1107,17 +1306,6 @@
       list.push({ points: top ? top * 2 : 25, name: 'New milestone' });
       Store.updateSettings({ milestones: list }); renderSettings();
     };
-    // classes
-    $$('[data-rename-group]').forEach(b => b.onclick = () => {
-      const old = b.dataset.renameGroup;
-      const name = prompt(`Rename class “${old}” to:`, old);
-      if (name && name.trim() && name.trim() !== old) { Store.renameGroup(old, name.trim()); renderSettings(); }
-    });
-    $$('[data-rm-group]').forEach(b => b.onclick = () => {
-      const g = b.dataset.rmGroup;
-      if (!confirm(`Remove the class “${g}”? The students and their points are kept.`)) return;
-      Store.renameGroup(g, ''); renderSettings();
-    });
     // backup / export
     $('#set-restore').onclick = () => $('#file-restore').click();
     $('#set-exp-students').onclick = exportStudents;
@@ -1171,9 +1359,14 @@
 
   /* ---------- global buttons ---------- */
   document.addEventListener('click', e => {
+    const up = e.target.closest('[data-upload-class]');
+    if (up) { openImport(up.dataset.uploadClass); return; }
+    const aw = e.target.closest('[data-award-class]');
+    if (aw) { ui.group = aw.dataset.awardClass; ui.house = ''; ui.search = ''; ui.selected.clear(); rememberUI(); go('award'); return; }
     const b = e.target.closest('[data-act]'); if (!b) return;
     switch (b.dataset.act) {
-      case 'import': openImport(); break;
+      case 'import': openImport(ui.view === 'classes' && ui.classOpen ? ui.classOpen : null); break;
+      case 'new-class': openNewClass(); break;
       case 'add-student': openAddStudent(); break;
       case 'demo': Store.loadDemo(); toast('Demo data loaded. Delete it any time in Settings → Delete everything.', { ms: 7000 }); render(); break;
       case 'display': showDisplay(); break;

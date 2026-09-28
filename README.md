@@ -17,6 +17,7 @@ On a free GitHub account, Pages needs the repository to be public. That is safe 
 
 | Screen | What you can do |
 |---|---|
+| **Classes** | Create a class for each group you teach (e.g. *10X Physics*, *11Y Physics*) and upload that class's list into it. Each class page shows its students, their points and the house totals for that class. Rename a class, remove a student from it, or delete it (keeping or deleting its students). |
 | **Award** | Pick a class, tap one or more students, tap a reason (Effort, Respect, Kindness…), choose 1–5 points, press **Award**. Undo within a few seconds. Type a name and press Enter to select quickly. |
 | **Leaderboard** | House totals for this week / month / term / year / all time, filtered by class. Top 10 students, what points were given for, and a **“Not recognised in the last 28 days”** list so quieter students aren't missed. **Show on big screen** gives a full-screen display for the classroom board or an assembly. |
 | **Students** | Import class lists, add or edit students, set houses, put students into classes, archive students who have left (their points still count for their house). Select several students to change their house or class at once. |
@@ -25,7 +26,9 @@ On a free GitHub account, Pages needs the repository to be public. That is safe 
 
 ## Importing students
 
-On **Students → Import CSV / PDF** you can use:
+The easiest way: **Classes → ＋ New class**, type the class name, then **Create & upload class list**. Or press **Upload list** on any existing class. Each class is uploaded separately, and a student who is in two of your classes is stored once and simply belongs to both.
+
+You can also use **Students → Import CSV / PDF**. Either way you can use:
 
 - **CSV**: best. Export a class list from SIMS, Arbor, Bromcom etc. as CSV. Columns like *Surname, Forename, Reg Group, House* are recognised automatically. For Excel files, use *File → Save As → CSV* first.
 - **PDF**: class lists and registers printed to PDF. Table columns are detected automatically. Scanned (image-only) PDFs can't be read.

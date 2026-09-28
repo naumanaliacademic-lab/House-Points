@@ -1,6 +1,6 @@
 /* House Points — offline support.
  * Network first (so updates arrive straight away), falling back to the cached copy when offline. */
-const CACHE = 'house-points-v1';
+const CACHE = 'house-points-v2';
 const FILES = [
   './', 'index.html', 'css/style.css', 'js/store.js', 'js/importer.js', 'js/app.js',
   'js/vendor/pdf.min.js', 'js/vendor/pdf.worker.min.js', 'icon.svg', 'manifest.webmanifest',

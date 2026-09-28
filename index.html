@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>House Points</title>
+  <meta name="description" content="Award house points to students — Amber, Emerald, Ruby and Sapphire.">
+  <meta name="theme-color" content="#1b2233">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <i style="background:var(--amber)"></i><i style="background:var(--emerald)"></i><i style="background:var(--ruby)"></i><i style="background:var(--sapphire)"></i>
+      </span>
+      <span>House Points</span>
+    </div>
+    <nav class="tabs" id="tabs" aria-label="Main">
+      <a href="#award" data-view="award"><span aria-hidden="true">＋</span> Award</a>
+      <a href="#board" data-view="board"><span aria-hidden="true">🏆</span> Leaderboard</a>
+      <a href="#students" data-view="students"><span aria-hidden="true">👥</span> Students</a>
+      <a href="#history" data-view="history"><span aria-hidden="true">🕘</span> History</a>
+      <a href="#settings" data-view="settings"><span aria-hidden="true">⚙︎</span> Settings</a>
+    </nav>
+  </header>
+
+  <div id="banner"></div>
+  <main id="view" tabindex="-1"></main>
+
+  <dialog id="modal"><div id="modal-body"></div></dialog>
+  <div id="toasts" aria-live="polite"></div>
+  <div id="display" hidden></div>
+
+  <input type="file" id="file-import" accept=".csv,.txt,.tsv,.pdf,text/csv,application/pdf" hidden>
+  <input type="file" id="file-restore" accept=".json,application/json" hidden>
+
+  <script src="js/store.js"></script>
+  <script src="js/importer.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

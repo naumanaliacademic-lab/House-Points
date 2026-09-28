@@ -1,0 +1,13 @@
+{
+  "name": "House Points",
+  "short_name": "House Points",
+  "description": "Award house points to students — Amber, Emerald, Ruby and Sapphire.",
+  "start_url": "./#award",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f5f8",
+  "theme_color": "#1b2233",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
